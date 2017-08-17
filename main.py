@@ -19,8 +19,9 @@ def genDist(dataIn, bands, points):
     resultsData = dataIn[results_cols] # Limit dataset to results
     popData = resultsData.apply(transform, axis=1) # Transform to population figures
     values = popData.sum().values[::-1]/total # Normalise and reverse
-    valuesWithEndpoints = np.insert(values,[0,len(values)],[0,0]) # Add 0s to both ends of the scale
+    valuesWithEndpoints = np.insert(values,[0,len(values)],[0.001,0.003]) # Add 0s to both ends of the scale
     midPoints = map(lambda (x,y): (x+y)/2,zip(bands,bands[1:])) # Calculate histogram midpoints
+    widths = map(lambda (x,y): y-x,zip(bands,bands[1:])) # Calculate histogram widths
     # Interpolate percentage function
     scoreFunc = interpolate.interp1d([0]+midPoints+[100],valuesWithEndpoints,kind="cubic")
     newY = scoreFunc(np.arange(0,100)) # Apply new function to all percentages
@@ -49,6 +50,7 @@ def percToPoints(x,bands,points):
 higherData = inputData[inputData["Level"]=='A'] # Data for higher level
 lowerData = inputData[inputData["Level"]=='G'] # Data for lower level
 
+
 oldBands = [0,10,25,40,45,50,55,60,65,70,75,80,85,90,100]
 oldPointsHigher = [0,0,0,45,50,55,60,65,70,75,80,85,90,100]
 oldPointsLower = [0,0,0,5,10,15,20,25,30,35,40,45,50,60]
@@ -60,24 +62,53 @@ newPointsLower = [0,0,12,20,28,37,46,56]
 higherF = genDist(higherData, oldBands, oldPointsHigher) # Get distribution for higher level
 lowerF = genDist(lowerData, oldBands,oldPointsLower) # Get distribution for lower level
 
+def randI(c,sd):
+    return int(round(np.random.normal(c,sd)))
+
+def lowerN():
+    n = randI(2.8,1.5)
+    return max(0,min(6,n))
+
+def studentToPoints(student,bands,lPoints,hPoints):
+    (l,h) = student
+    lRes = reduce(lambda x,y: x + percToPoints(y,bands,lPoints),l,0)
+    hRes = reduce(lambda x,y: x + percToPoints(y,bands,hPoints),h,0)
+    return lRes+hRes
+
 # Function to simulate a student
-def simStudent(bands,higherPoints,lowerPoints):
+def simStudent():
     # pick how many lower level subjects, average is around 2 or 3 from personal experience
-    nLower = rand.randint(0,3)
+    nLower = lowerN()
     lAnchor = lowerF() # Find an anchor for the lower level exams
     hAnchor = higherF() # Find an anchor for the higher level exams
-    # Map the percToPoints function over exams at each level, where the student scores
-    # in a uniform distribution of +-20% from the anchor point
-    results = map(lambda x: percToPoints(x,bands,lowerPoints),[rand.randint(max(0,lAnchor-20),min(lAnchor+20,100)) for _ in range(nLower)])
-    results += map(lambda x: percToPoints(x,bands,higherPoints),[rand.randint(max(0,hAnchor-20),min(hAnchor+20,100)) for _ in range(7-nLower)])
-    # Sort results
-    results.sort(reverse=True)
-    return reduce(lambda x,y: x+y, results[:6]) # Return sum of top 6
-    
+    lResults = [max(0,min(randI(lAnchor,5),100)) for _ in range(nLower)]
+    hResults = [max(0,min(randI(hAnchor,5),100)) for _ in range(6-nLower)]
+    return (lResults,hResults)
 
-oldStudents = [simStudent(oldBands,oldPointsHigher,oldPointsLower) for _ in range(10000)]
-newStudents = [simStudent(newBands,newPointsHigher,newPointsLower) for _ in range(10000)]
+students = [simStudent() for _ in range(100000)]
 
-plt.hist(oldStudents,normed=1,color='red')
-plt.hist(newStudents,normed=1,color='blue')
-plt.show()
+oldResults = map(lambda x: studentToPoints(x,oldBands,oldPointsLower,oldPointsHigher),students)
+newResults = map(lambda x: studentToPoints(x,newBands,newPointsLower,newPointsHigher),students)
+
+mx=mn=0
+sm=0
+for i in range(len(students)):
+    dif = oldResults[i] - newResults[i]
+    if(dif < oldResults[mn]-newResults[mn]):
+        mn=i
+    if(dif > oldResults[mx]-newResults[mx]):
+        mx=i
+    sm+=dif
+
+sm/=len(students)
+
+print students[mx],oldResults[mx],newResults[mx],oldResults[mx]-newResults[mx]
+print students[mn],oldResults[mn],newResults[mn],oldResults[mn]-newResults[mn]
+print sm
+
+plt.title("Points distributions compared")
+plt.hist(oldResults,normed=1,color='red',bins=20,label="Old System")
+plt.hist(newResults,normed=1,color='blue',bins=20,alpha=0.7,label="New System")
+plt.legend(loc="upper left")
+plt.xlabel("Points")
+#plt.show()
